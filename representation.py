@@ -2,6 +2,7 @@
 John Mayer guitar --> disjoint latent space --> John Mayer guitar + clean guitar
 """
 
+import auraloss
 import librosa
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,8 +27,8 @@ class Encoder(nn.Module):
         self.fc_logvar = nn.Linear(256, latent_dim)
 
     def forward(self, x):
-        h = F.relu(self.fc1(x))
-        h = F.relu(self.fc2(h))
+        h = F.tanh(self.fc1(x))
+        h = F.tanh(self.fc2(h))
         mu = self.fc_mu(h)
         logvar = self.fc_logvar(h)
         return mu, logvar
@@ -42,8 +43,8 @@ class Decoder(nn.Module):
         self.fc3 = nn.Linear(512, output_dim)
 
     def forward(self, z):
-        h = F.relu(self.fc1(z))
-        h = F.relu(self.fc2(h))
+        h = F.tanh(self.fc1(z))
+        h = F.tanh(self.fc2(h))
         reconstruction = torch.sigmoid(self.fc3(h))
         return reconstruction
 
@@ -66,10 +67,26 @@ class VAE(nn.Module):
         return self.decoder(z), mu, logvar
 
 
+fn = auraloss.time.ESRLoss()
+fn = auraloss.freq.MultiResolutionSTFTLoss(
+    fft_sizes=[1024, 2048],
+    hop_sizes=[256, 512],
+    win_lengths=[1024, 2048],
+    scale="mel",
+    n_bins=128,
+    sample_rate=44100,
+    perceptual_weighting=True,
+)
+
 def loss_function(recon_x, x, mu, logvar):
-    BCE = F.mse_loss(recon_x, x)
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return BCE + KLD
+    # BCE = F.mse_loss(recon_x, x)
+    # Insert dummy channel?
+    recon_x, x = torch.unsqueeze(recon_x, 1), torch.unsqueeze(x, 1)
+    # print(recon_x.shape)
+    reconstruction_loss = fn(recon_x, x)
+    # TODO: why do we actually want this to be aligned to normal
+    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    return reconstruction_loss
 
 
 def split_audio(
@@ -109,32 +126,28 @@ def plot_waveforms(og, recon, epoch, prefix="train_png"):
     plt.savefig(f'reconstructed/{prefix}/out_epoch_{epoch}.png')
 
 
-def validate(model, validation_dataset, batch_size):
+def validate(model, validation_dataset, batch_size, epoch):
     validation_loader = DataLoader(
-        validation_dataset, batch_size=batch_size, shuffle=False
+        validation_dataset, batch_size=batch_size, shuffle=True
     )
 
     model.eval()
     val_loss = 0
-    for epoch in range(20):
-        for batch_idx, data in enumerate(validation_loader):
-            data = data[0]
-            data = data.to(device)
-            
-            recon_batch, mu, logvar = model(data)
-            loss = loss_function(recon_batch, data, mu, logvar)
-            val_loss += loss.item()
+    for _, data in enumerate(validation_loader):
+        data = data[0]
+        data = data.to(device)
+        
+        recon_batch, mu, logvar = model(data)
+        loss = loss_function(recon_batch, data, mu, logvar)
+        val_loss += loss.item()
 
-        if batch_idx % 32 * 10 == 0:
-            print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(validation_loader.dataset)}'
-                f' ({100. * batch_idx / len(validation_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
-
-        print(f'====> Val Epoch: {epoch} Average loss: {val_loss / len(validation_loader.dataset):.4f}')
-        check_in = data[0].detach().cpu().numpy()
-        check_out = recon_batch[0].detach().cpu().numpy()
-        sf.write(f'reconstructed/val/in_epoch_{epoch}.wav', check_in, 44100)
-        sf.write(f'reconstructed/val/out_epoch_{epoch}.wav', check_out , 44100)
-        plot_waveforms(check_in, check_out, epoch, "val_png")
+    print(f'====> Val Average loss: {val_loss / len(validation_loader.dataset):.4f}')
+    print(val_loss)
+    check_in = data[0].detach().cpu().numpy()
+    check_out = recon_batch[0].detach().cpu().numpy()
+    sf.write(f'reconstructed/val/in_epoch_{epoch}.wav', check_in, 44100)
+    sf.write(f'reconstructed/val/out_epoch_{epoch}.wav', check_out , 44100)
+    plot_waveforms(check_in, check_out, epoch, "val_png")
 
 
 def train(model, optimizer, train_tensor, validation_tensor):
@@ -147,10 +160,12 @@ def train(model, optimizer, train_tensor, validation_tensor):
 
     model.train()
     train_loss = 0
-    for epoch in range(5):
+    for epoch in range(20):
         for batch_idx, data in enumerate(train_loader):
             data = data[0]
             data = data.to(device)
+            # print("data")
+            # print(data.shape)
             optimizer.zero_grad()
             
             recon_batch, mu, logvar = model(data)
@@ -164,6 +179,7 @@ def train(model, optimizer, train_tensor, validation_tensor):
                 f' ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
 
         print(f'====> Train Epoch: {epoch} Average loss: {train_loss / len(train_loader.dataset):.4f}')
+        print(train_loss)
         # Periodically save some input/output WAV files to check quality
         check_in = data[0].detach().cpu().numpy()
         check_out = recon_batch[0].detach().cpu().numpy()
@@ -171,9 +187,8 @@ def train(model, optimizer, train_tensor, validation_tensor):
         sf.write(f'reconstructed/train/out_epoch_{epoch}.wav', check_out, 44100)
         # Visual sanity check
         plot_waveforms(check_in, check_out, epoch, "train_png")
-
         
-    validate(model, validation_dataset, batch_size)
+        validate(model, validation_dataset, batch_size, epoch)
 
 
 def main():
@@ -207,6 +222,7 @@ def main():
     input_dim = len(audio_set[0])
     latent_dim = 64
     vae = VAE(input_dim, latent_dim)
+    vae = vae.to(device)
     
     # recon_batch, mu, logvar = vae(data)
     # loss = loss_function(recon_batch, data, mu, logvar)
