@@ -2,9 +2,13 @@
 John Mayer guitar --> disjoint latent space --> John Mayer guitar + clean guitar
 """
 
+import librosa
+import numpy as np
+import soundfile as sf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import TensorDataset, DataLoader
 
 
 class Encoder(nn.Module):
@@ -64,14 +68,73 @@ def loss_function(recon_x, x, mu, logvar):
     return BCE + KLD
 
 
-# Example usage
-input_dim = 1024  # This should match your audio input size
-latent_dim = 64  # Size of the latent space
-vae = VAE(input_dim, latent_dim)
+def split_audio(
+    raw_audio: np.ndarray, sampling_rate: int = 44100, chunk_size: int = 100
+):
+    """
+    Wright et. al: the training data was split into 100 ms training examples
+    """
+
+    chunk = sampling_rate * (chunk_size / 1000)
+    cutoff = len(raw_audio) % int(chunk)
+    raw_audio = raw_audio[:-cutoff]
+    audio_splits = np.split(raw_audio, chunk)
+    np.random.shuffle(audio_splits)
+    audio_splits = torch.tensor(audio_splits, dtype=torch.float32)
+    return audio_splits
+
+
+def train(train_tensor, validation_tensor):
+    train_dataset = TensorDataset(train_tensor)
+    validation_dataset = TensorDataset(validation_tensor)
+
+    # Create DataLoaders
+    batch_size = 32
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False)
 
 
 def main():
-    # Assuming 'data' is your input audio tensor
+    # with wave.open('wavFiles/GuitarMixIn.wav', 'r') as wav_file:
+    #     # Get parameters
+    #     n_channels, sampwidth, framerate, n_frames, comptype, compname = wav_file.getparams()
+    #     print(wav_file.getparams())
+
+    #     # Read audio frames
+    #     frames = wav_file.readframes(n_frames)
+
+    #     # Convert frames to byte array
+    #     frames = np.frombuffer(frames, dtype=np.int16)
+
+    # Load wav as mono at 44.1 kHz sampling rate
+    # Normalized to [-1, 1]
+    y, sr = librosa.load("isolated-guitar/Nirvana-Teen-Spirit.wav", sr=44100, mono=True)
+    # print(y)
+    # print(y.shape)
+    # y, sr = librosa.load("wavFiles/GuitarMixIn.wav", sr=44100, mono=True)
+    # print(y)
+    # print(y.shape)
+
+    # print("Frames?")
+    # for f in frames:
+    #     print(f)
+    # Example usage
+    audio_set = split_audio(y)
+    print(audio_set)
+    data = audio_set[0]
+
+    train_ratio = 0.8
+    split_index = int(len(audio_set) * train_ratio)
+    print(split_index)
+    train_data = audio_set[:split_index]
+    train_tensor = torch.tensor(train_data, dtype=torch.float32)
+    validation_data = audio_set[split_index:]
+    validation_tensor = torch.tensor(validation_data, dtype=torch.float32)
+
+    # Number of audio samples in each training example
+    input_dim = len(audio_set[0])
+    latent_dim = 64
+    vae = VAE(input_dim, latent_dim)
     recon_batch, mu, logvar = vae(data)
     loss = loss_function(recon_batch, data, mu, logvar)
 
