@@ -14,7 +14,7 @@ import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
+BATCH_SIZE = 1
 
 class Encoder(nn.Module):
     # TODO: learn a separate thread of layers for audio representation
@@ -102,7 +102,11 @@ def split_audio(
     audio_splits = np.split(raw_audio, chunk)
     np.random.shuffle(audio_splits)
     audio_splits = np.array(audio_splits)
+    print("why1")
+    print(audio_splits.shape)
     audio_splits = torch.tensor(audio_splits, dtype=torch.float32)
+    print("why2")
+    print(audio_splits.shape)
     return audio_splits
 
 
@@ -155,17 +159,18 @@ def train(model, optimizer, train_tensor, validation_tensor):
     validation_dataset = TensorDataset(validation_tensor)
 
     # Create DataLoaders
-    batch_size = 32
+    batch_size = BATCH_SIZE
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     model.train()
     train_loss = 0
     for epoch in range(20):
+        train_loss = 0
         for batch_idx, data in enumerate(train_loader):
             data = data[0]
             data = data.to(device)
-            # print("data")
-            # print(data.shape)
+            print("data")
+            print(data.shape)
             optimizer.zero_grad()
             
             recon_batch, mu, logvar = model(data)
@@ -174,9 +179,9 @@ def train(model, optimizer, train_tensor, validation_tensor):
             train_loss += loss.item()
             optimizer.step()
 
-        if batch_idx % 32 * 10 == 0:
-            print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)}'
-                f' ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
+        # if batch_idx % 32 * 10 == 0:
+        #     print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)}'
+        #         f' ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
 
         print(f'====> Train Epoch: {epoch} Average loss: {train_loss / len(train_loader.dataset):.4f}')
         print(train_loss)
@@ -209,13 +214,20 @@ def main():
 
     # Example usage
     audio_set = split_audio(y)
-    data = audio_set[0]
-    print("Audio Set Example")
-    print(data)
+    # data = audio_set[0]
+    # print("Audio Set Example")
+    # print(data)
 
     train_ratio = 0.8
     split_index = int(len(audio_set) * train_ratio)
-    train_data = audio_set[:split_index]
+    # train_data = audio_set[:split_index]
+
+    # Take a tiny subset and see if we can fit it
+    print("audio set")
+    print(audio_set)
+    train_data = audio_set[0, :].unsqueeze(0)
+    print("train data?")
+    print(train_data.shape)
     validation_data = audio_set[split_index:]
 
     # Number of audio samples in each training example
