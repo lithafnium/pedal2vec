@@ -8,7 +8,10 @@ import soundfile as sf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
+
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
 class Encoder(nn.Module):
@@ -51,6 +54,7 @@ class VAE(nn.Module):
         self.decoder = Decoder(latent_dim, input_dim)
 
     def reparameterize(self, mu, logvar):
+        # The trick
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
@@ -61,9 +65,8 @@ class VAE(nn.Module):
         return self.decoder(z), mu, logvar
 
 
-# Loss Function
 def loss_function(recon_x, x, mu, logvar):
-    BCE = F.binary_cross_entropy(recon_x, x, reduction="sum")
+    BCE = F.mse_loss(recon_x, x)
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
     return BCE + KLD
 
@@ -80,18 +83,65 @@ def split_audio(
     raw_audio = raw_audio[:-cutoff]
     audio_splits = np.split(raw_audio, chunk)
     np.random.shuffle(audio_splits)
+    audio_splits = np.array(audio_splits)
     audio_splits = torch.tensor(audio_splits, dtype=torch.float32)
     return audio_splits
 
 
-def train(train_tensor, validation_tensor):
+def validate(model, validation_dataset, batch_size):
+    validation_loader = DataLoader(
+        validation_dataset, batch_size=batch_size, shuffle=False
+    )
+
+    model.eval()
+    val_loss = 0
+    for epoch in range(20):
+        for batch_idx, data in enumerate(validation_loader):
+            data = data[0]
+            data = data.to(device)
+            
+            recon_batch, mu, logvar = model(data)
+            loss = loss_function(recon_batch, data, mu, logvar)
+            val_loss += loss.item()
+
+        if batch_idx % 32 * 10 == 0:
+            print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(validation_loader.dataset)}'
+                f' ({100. * batch_idx / len(validation_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
+
+        print(f'====> Val Epoch: {epoch} Average loss: {val_loss / len(validation_loader.dataset):.4f}')
+
+
+def train(model, optimizer, train_tensor, validation_tensor):
     train_dataset = TensorDataset(train_tensor)
     validation_dataset = TensorDataset(validation_tensor)
 
     # Create DataLoaders
     batch_size = 32
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False)
+
+    model.train()
+    train_loss = 0
+    for epoch in range(5):
+        for batch_idx, data in enumerate(train_loader):
+            data = data[0]
+            data = data.to(device)
+            optimizer.zero_grad()
+            
+            recon_batch, mu, logvar = model(data)
+            loss = loss_function(recon_batch, data, mu, logvar)
+            loss.backward()
+            train_loss += loss.item()
+            optimizer.step()
+
+        if batch_idx % 32 * 10 == 0:
+            print(f'Train Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)}'
+                f' ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
+
+        print(f'====> Train Epoch: {epoch} Average loss: {train_loss / len(train_loader.dataset):.4f}')
+
+    # TODO: periodically save some input/output wav outputs and check quality
+        
+    validate(model, validation_dataset, batch_size)
 
 
 def main():
@@ -108,35 +158,30 @@ def main():
 
     # Load wav as mono at 44.1 kHz sampling rate
     # Normalized to [-1, 1]
-    y, sr = librosa.load("isolated-guitar/Nirvana-Teen-Spirit.wav", sr=44100, mono=True)
-    # print(y)
-    # print(y.shape)
-    # y, sr = librosa.load("wavFiles/GuitarMixIn.wav", sr=44100, mono=True)
-    # print(y)
-    # print(y.shape)
+    y, _ = librosa.load("isolated-guitar/Nirvana-Teen-Spirit.wav", sr=44100, mono=True)
 
-    # print("Frames?")
-    # for f in frames:
-    #     print(f)
     # Example usage
     audio_set = split_audio(y)
-    print(audio_set)
     data = audio_set[0]
+    print("Audio Set Example")
+    print(data)
 
     train_ratio = 0.8
     split_index = int(len(audio_set) * train_ratio)
-    print(split_index)
     train_data = audio_set[:split_index]
-    train_tensor = torch.tensor(train_data, dtype=torch.float32)
     validation_data = audio_set[split_index:]
-    validation_tensor = torch.tensor(validation_data, dtype=torch.float32)
 
     # Number of audio samples in each training example
     input_dim = len(audio_set[0])
     latent_dim = 64
     vae = VAE(input_dim, latent_dim)
-    recon_batch, mu, logvar = vae(data)
-    loss = loss_function(recon_batch, data, mu, logvar)
+    
+    # recon_batch, mu, logvar = vae(data)
+    # loss = loss_function(recon_batch, data, mu, logvar)
+
+    optimizer = optim.Adam(vae.parameters(), lr=1e-3)
+    train(vae, optimizer, train_data, validation_data)
+
 
 
 if __name__ == "__main__":
