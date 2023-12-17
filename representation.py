@@ -3,6 +3,7 @@ John Mayer guitar --> disjoint latent space --> John Mayer guitar + clean guitar
 """
 
 import librosa
+import matplotlib.pyplot as plt
 import numpy as np
 import soundfile as sf
 import torch
@@ -88,6 +89,26 @@ def split_audio(
     return audio_splits
 
 
+def plot_waveforms(og, recon, epoch, prefix="train_png"):
+    
+    assert prefix in ["train_png", "val_png"]
+    plt.figure(figsize=(14, 5))
+    librosa.display.waveshow(og, sr=44100, color="blue")
+
+    plt.title('Audio Waveform Input')
+    plt.xlabel('Time (Seconds)')
+    plt.ylabel('Amplitude')
+    plt.savefig(f'reconstructed/{prefix}/in_epoch_{epoch}.png')
+
+    plt.figure(figsize=(14, 5))
+    librosa.display.waveshow(recon, sr=44100, color="blue")
+
+    plt.title('Audio Waveform Output')
+    plt.xlabel('Time (Seconds)')
+    plt.ylabel('Amplitude')
+    plt.savefig(f'reconstructed/{prefix}/out_epoch_{epoch}.png')
+
+
 def validate(model, validation_dataset, batch_size):
     validation_loader = DataLoader(
         validation_dataset, batch_size=batch_size, shuffle=False
@@ -109,6 +130,11 @@ def validate(model, validation_dataset, batch_size):
                 f' ({100. * batch_idx / len(validation_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
 
         print(f'====> Val Epoch: {epoch} Average loss: {val_loss / len(validation_loader.dataset):.4f}')
+        check_in = data[0].detach().cpu().numpy()
+        check_out = recon_batch[0].detach().cpu().numpy()
+        sf.write(f'reconstructed/val/in_epoch_{epoch}.wav', check_in, 44100)
+        sf.write(f'reconstructed/val/out_epoch_{epoch}.wav', check_out , 44100)
+        plot_waveforms(check_in, check_out, epoch, "val_png")
 
 
 def train(model, optimizer, train_tensor, validation_tensor):
@@ -138,8 +164,14 @@ def train(model, optimizer, train_tensor, validation_tensor):
                 f' ({100. * batch_idx / len(train_loader):.0f}%)]\tLoss: {loss.item() / len(data):.6f}')
 
         print(f'====> Train Epoch: {epoch} Average loss: {train_loss / len(train_loader.dataset):.4f}')
+        # Periodically save some input/output WAV files to check quality
+        check_in = data[0].detach().cpu().numpy()
+        check_out = recon_batch[0].detach().cpu().numpy()
+        sf.write(f'reconstructed/train/in_epoch_{epoch}.wav', check_in, 44100)
+        sf.write(f'reconstructed/train/out_epoch_{epoch}.wav', check_out, 44100)
+        # Visual sanity check
+        plot_waveforms(check_in, check_out, epoch, "train_png")
 
-    # TODO: periodically save some input/output wav outputs and check quality
         
     validate(model, validation_dataset, batch_size)
 
