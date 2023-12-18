@@ -45,7 +45,7 @@ class Decoder(nn.Module):
     def forward(self, z):
         h = F.tanh(self.fc1(z))
         h = F.tanh(self.fc2(h))
-        reconstruction = torch.sigmoid(self.fc3(h))
+        reconstruction = torch.tanh(self.fc3(h))
         return reconstruction
 
 
@@ -193,7 +193,7 @@ def train(model, optimizer, train_tensor, validation_tensor):
         # Visual sanity check
         plot_waveforms(check_in, check_out, epoch, "train_png")
         
-        validate(model, validation_dataset, batch_size, epoch)
+        # validate(model, validation_dataset, batch_size, epoch)
 
 
 def main():
