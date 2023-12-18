@@ -1,0 +1,19 @@
+clear all, [train,test] = getInOut('IbanezTSA15.wav',[1,2,3,4,5],[5],0.8);
+clear all, [train,test] = getInOut('HT5M.wav',[1,2,3,4,5],[5],0.8);
+clear all, [train,test] = getInOut('Mesa550Clean.wav',[1,2,3,4,5],[5],0.8);
+clear all, [train,test] = getInOut('Mesa550Crunch.wav',[1,2,3,4,5],[5],0.8);
+clear all, [train,test] = getInOut('Mesa550Disto.wav',[1,2,3,4,5],[5],0.8);
+clear all, [train,test] = getInOut('MesaMarkVClean.wav',[1,2,3,4,5],[5],0.8);
+clear all, [train,test] = getInOut('MesaMarkVCrunch.wav',[1,2,3,4,5],[5],0.8);
+clear all, [train,test] = getInOut('MesaMarkVDisto.wav',[1,2,3,4,5],[5],0.8);
+clear all, [train,test] = getInOut('EnglDisto.wav',[1,2,3,4,5],[5],0.8);
+%%
+clear all,val = getVal('IbanezTSA15.wav',[4],[5]);
+clear all,val = getVal('HT5M.wav',[4],[5]);
+clear all,val = getVal('Mesa550Clean.wav',[4],[5]);
+clear all,val = getVal('Mesa550Crunch.wav',[4],[5]);
+clear all,val = getVal('Mesa550Disto.wav',[4],[5]);
+clear all,val = getVal('MesaMarkVClean.wav',[4],[5]);
+clear all,val = getVal('MesaMarkVCrunch.wav',[4],[5]);
+clear all,val = getVal('MesaMarkVDisto.wav',[4],[5]);
+clear all,val = getVal('EnglDisto.wav',[4],[5]);
